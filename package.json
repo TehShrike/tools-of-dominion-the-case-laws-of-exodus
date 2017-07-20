@@ -1,0 +1,19 @@
+{
+  "name": "tools-of-dominion-the-case-laws-of-exodus",
+  "version": "1.0.0",
+  "description": "A programmatic (JSON) version of Gary North's book Tools Of Dominion: The Case Laws of Exodus",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TehShrike/tools-of-dominion-the-case-laws-of-exodus.git"
+  },
+  "author": "TehShrike",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/TehShrike/tools-of-dominion-the-case-laws-of-exodus/issues"
+  },
+  "homepage": "https://github.com/TehShrike/tools-of-dominion-the-case-laws-of-exodus#readme"
+}
