@@ -6,7 +6,8 @@ const entries = require('ordered-entries')
 const {
 	ROW_TYPE,
 	flatMap,
-	int
+	int,
+	grabAllRowText,
 } = require('./shared')
 
 function rangeInclusive(from, to) {
@@ -15,10 +16,10 @@ function rangeInclusive(from, to) {
 }
 
 function main() {
-	const files = rangeInclusive(9, 1295).map(i => `./html/page${i}.html`)
+	const files = rangeInclusive(9, 1224).map(i => `./html/page${i}.html`)
 	// const files = rangeInclusive(35, 72).map(i => `./html/page${i}.html`)
-	// const files = rangeInclusive(504, 504).map(i => `./html/page${i}.html`)
-	console.log(files)
+	// const files = rangeInclusive(160, 160).map(i => `./html/page${i}.html`)
+	// console.log(files)
 
 	const allFileContents = files.map(file => fs.readFileSync(file, { encoding: 'utf8' }))
 
@@ -58,6 +59,10 @@ function main() {
 		return processRows(rows)
 	})
 
+	// intermediate.map(row => {
+	// 	// console.log(row)
+	// 	console.log(row.rowType, '-', grabAllRowText(row))
+	// })
 	fs.writeFileSync('./intermediate/content.json', JSON.stringify(intermediate, null, '\t'))
 }
 
@@ -72,8 +77,12 @@ const rowHandlers = {
 			&& int(row.style.top) > 120
 			&& allDigits(row.sections[0].text)
 	},
-	[ROW_TYPE.CHAPTER_HEADING]: function rowIsChapterHeading(row) {
-		return int(row.style.top) < 200
+	[ROW_TYPE.CHAPTER_HEADING]: function rowIsChapterHeading(row, { seen }) {
+		const top = int(row.style.top)
+		return top < 200
+			&& top > 100
+			&& !seen[ROW_TYPE.BODY]
+			&& !seen[ROW_TYPE.PAGE_HEADER]
 			&& row.sections.every(section => allUppercase(section.text))
 	},
 	[ROW_TYPE.INTRO_VERSE]: function rowIsIntroVerse(row, { seen, lastRow }) {
@@ -123,10 +132,9 @@ function processRows(rows) {
 
 		const [ key ] = match
 
-		return {
+		return Object.assign({
 			rowType: key,
-			row
-		}
+		}, row)
 	})
 }
 
@@ -160,14 +168,6 @@ function sectionIsItalic(section) {
 	return section.style.fontStyle === 'italic'
 }
 
-function extractChapterNumber(row) {
-	return int(row.sections[0].text)
-}
-
-
-
-
-
 
 
 const allDigits = str => /^\d+$/.test(str)
@@ -185,8 +185,6 @@ function idStyleMap(html) {
 
 	return map
 }
-
-const grabAllRowText = row => row.sections.map(({ text }) => text).join('')
 
 function styleStringToMap(styles) {
 	const styleMap = Object.create(null)

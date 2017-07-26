@@ -14,10 +14,11 @@ const ROW_TYPE = [
 
 const flatMap = (array, fn) => flatten(array.map(fn))
 const int = str => parseInt(str, 10)
-
+const grabAllRowText = row => row.sections.map(({ text }) => text).join('')
 
 module.exports = {
 	ROW_TYPE,
 	flatMap,
-	int
+	int,
+	grabAllRowText,
 }
