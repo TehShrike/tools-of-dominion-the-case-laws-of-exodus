@@ -14,13 +14,11 @@ function main() {
 
 	const actuallyCareAbout = intermediate.filter(row =>
 		row.rowType !== ROW_TYPE.PAGE_HEADER
-		&& int(row.style.left) < 220
+			&& int(row.style.left) < 220
 	)
 
-
-
 	const chapters = splitRowsIntoChapters(actuallyCareAbout).map(chapter => {
-		const rows = addPointerTolast(chapter.rows)
+		const rows = fixJunkSections(addPointerTolast(chapter.rows))
 		return {
 			number: chapter.number,
 			title: getChapterTitle(rows),
@@ -102,7 +100,7 @@ function getChapterFootnotes(rows) {
 	rows
 		.filter(row => row.rowType === ROW_TYPE.FOOTNOTE)
 		.forEach(row => {
-			if (rowHasLeadingFootnoteNumber(row)) {
+			if (sectionHasLeadingFootnoteNumber(row, row.sections[0])) {
 				const [ firstSection, ...restOfSections ] = row.sections
 
 				const [ number, textObject ] = parseOutFootnoteNumberAndText(firstSection)
@@ -127,7 +125,7 @@ function getChapterFootnotes(rows) {
 		})
 }
 
-const rowHasLeadingFootnoteNumber = row => {
+const sectionHasLeadingFootnoteNumber = (row, section) => {
 	if (row.lastBodies.length === 0) {
 		return false
 	}
@@ -139,18 +137,47 @@ const rowHasLeadingFootnoteNumber = row => {
 
 	const generalCheck = indentInPixels > 5
 		&& indentInPixels < 20
-		&& /^\d+ ?\./.test(row.sections[0].text)
+		&& /^\d+ ?\./.test(section.text)
 
 	// if (row.file === './html/page747.html') {
 	// 	console.log(
 	// 		indentInPixels > 5,
 	// 		indentInPixels < 20,
-	// 		/^\d+ ?\./.test(row.sections[0].text)
+	// 		/^\d+ ?\./.test(section.text)
 	// 	)
 	// }
 
 	return generalCheck
-		|| (row.file === './html/page533.html' && /^, 39\. /.test(row.sections[0].text))
+		|| (row.file === './html/page533.html' && /^, 39\. /.test(section.text))
+}
+
+
+const matches = (row, section, pageNumber, rowType, text) => row.file === `./html/page${pageNumber}.html`
+	&& row.rowType === rowType
+	&& section.text === text
+const sectionWithNewText = (section, text) => Object.assign({}, section, { text })
+
+const junkToFilter = [
+	(row, section) => matches(row, section, 870, ROW_TYPE.FOOTNOTE, '~ ')
+]
+const junkToMap = [
+	(row, section) => matches(row, section, 903, ROW_TYPE.FOOTNOTE, 'B. ')
+		? sectionWithNewText(section, '8. ')
+		: section
+]
+const getNonJunkSections = row => {
+	return row.sections
+		.filter(section => {
+			return junkToFilter.every(filterFunction => !filterFunction(row, section))
+		})
+		.map(section => {
+			return junkToMap.reduce((section, mapFunction) => mapFunction(row, section), section)
+		})
+}
+const fixJunkSections = rows => {
+	return rows.map(row => Object.assign({}, row, {
+		sections: getNonJunkSections(row)
+	}))
 }
 
 const parseOutFootnoteNumberAndText = section => {
