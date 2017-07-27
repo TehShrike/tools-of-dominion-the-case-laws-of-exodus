@@ -137,13 +137,24 @@ const rowHasLeadingFootnoteNumber = row => {
 
 	const indentInPixels = int(row.style.left) - minimumLeftAlignment
 
-	return indentInPixels > 5
+	const generalCheck = indentInPixels > 5
 		&& indentInPixels < 20
-		&& /^\d+\./.test(row.sections[0].text)
+		&& /^\d+ ?\./.test(row.sections[0].text)
+
+	// if (row.file === './html/page747.html') {
+	// 	console.log(
+	// 		indentInPixels > 5,
+	// 		indentInPixels < 20,
+	// 		/^\d+ ?\./.test(row.sections[0].text)
+	// 	)
+	// }
+
+	return generalCheck
+		|| (row.file === './html/page533.html' && /^, 39\. /.test(row.sections[0].text))
 }
 
 const parseOutFootnoteNumberAndText = section => {
-	const [ number, rest ] = match(/^(\d+)\. *(.*)/, section.text)[0]
+	const [ number, rest ] = match(/^[^\d]*(\d+) ?\. *(.*)/, section.text)[0]
 	const textObject = Object.assign(makeTextBlockFromSection(section), {
 		text: rest
 	})

@@ -130,9 +130,25 @@ const rowHandlers = {
 	},
 }
 
+const specialCases = {
+	'./html/page474.html': {
+		[ROW_TYPE.FOOTNOTE]: (row, meta) => {
+			return rowHandlers[ROW_TYPE.FOOTNOTE](row, meta)
+				&& int(row.style.top) > 540
+		}
+	},
+	'./html/page676.html': {
+		[ROW_TYPE.FOOTNOTE]: () => false
+	},
+	'./html/page793.html': {
+		[ROW_TYPE.FOOTNOTE]: row => /^1\. /.test(row.sections[0].text)
+	}
+}
+
 function processRows(rows) {
 	return rowsFlatMapWithMeta(rows, (row, meta) => {
-		const match = entries(rowHandlers).find(([ , comparator ]) => comparator(row, meta))
+		const handlers = Object.assign({}, rowHandlers, specialCases[row.file])
+		const match = entries(handlers).find(([ , comparator ]) => comparator(row, meta))
 		assert(match !== undefined, `No row handler found for ${row}`)
 
 		const [ key ] = match
