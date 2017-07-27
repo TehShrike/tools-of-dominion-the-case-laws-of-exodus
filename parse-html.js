@@ -8,6 +8,7 @@ const {
 	flatMap,
 	int,
 	grabAllRowText,
+	assert,
 } = require('./shared')
 
 function rangeInclusive(from, to) {
@@ -21,7 +22,10 @@ function main() {
 	// const files = rangeInclusive(160, 160).map(i => `./html/page${i}.html`)
 	// console.log(files)
 
-	const allFileContents = files.map(file => fs.readFileSync(file, { encoding: 'utf8' }))
+	const allFileContents = files.map(file => ({
+		file,
+		contents: fs.readFileSync(file, { encoding: 'utf8' })
+	}))
 
 	console.log('Done reading in all files')
 
@@ -31,10 +35,10 @@ function main() {
 	// headers: font size at least 10px
 	// chapter numbers: left at least 170px contains \d+
 
-	const intermediate = flatMap(allFileContents, fileText => {
-		const idToStyles = idStyleMap(fileText)
+	const intermediate = flatMap(allFileContents, ({ file, contents }) => {
+		const idToStyles = idStyleMap(contents)
 
-		const $ = cheerio.load(fileText)
+		const $ = cheerio.load(contents)
 		const rows = mapEach($('body > div.txt'), container => {
 			const divStyle = styleStringToMap(container.attribs.style)
 
@@ -52,6 +56,7 @@ function main() {
 			return {
 				sections: rowContents,
 				style: divStyle,
+				file,
 			}
 		})
 
@@ -95,7 +100,7 @@ const rowHandlers = {
 			&& int(row.style.left) > 50
 	},
 	[ROW_TYPE.PAGE_HEADER]: (row, { lastRow, seen }) => {
-		const pageNumberAtTop = !seen[ROW_TYPE.BODY] && int(row.style.top) < 50
+		const pageNumberAtTop = !seen[ROW_TYPE.BODY] && int(row.style.top) < 53
 
 		const pageNumberAtBottom = seen[ROW_TYPE.CHAPTER_HEADING]
 			&& seen[ROW_TYPE.BODY]
@@ -108,9 +113,9 @@ const rowHandlers = {
 	[ROW_TYPE.FOOTNOTE]: function isFootnoteRow(row, { seen, lastRow }) {
 		const isFirstFootnoteRow = seen[ROW_TYPE.BODY]
 			&& !seen[ROW_TYPE.FOOTNOTE]
-			&& startsWithDigits(row.sections[0].text)
-			&& isGapBetweenRows(lastRow, row)
-			&& row.sections.some(section => int(section.style.fontSize) <= 9)
+			// && startsWithDigits(row.sections[0].text)
+			&& distanceBetweenRows(lastRow, row) > 16
+			&& row.sections.some(section => int(section.style.fontSize) <= 8)
 
 		return isFirstFootnoteRow
 			|| seen[ROW_TYPE.FOOTNOTE]
@@ -135,6 +140,15 @@ function processRows(rows) {
 		return Object.assign({
 			rowType: key,
 		}, row)
+	})
+}
+
+function rowIsSmallish(row) {
+	row.sections.map(section => {
+		return {
+			words: section.text.split(/\s+/).length,
+			small: section.style.fontSize
+		}
 	})
 }
 
@@ -206,12 +220,6 @@ const extract = cheerioResults => {
 	cheerioResults.each((index, element) => array.push(element))
 
 	return array
-}
-
-function assert(value, message) {
-	if (!value) {
-		throw new Error(message || `ASSERT!`)
-	}
 }
 
 function camelCase(str) {
