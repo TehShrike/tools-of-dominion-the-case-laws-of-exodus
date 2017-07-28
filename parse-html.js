@@ -17,7 +17,7 @@ function rangeInclusive(from, to) {
 }
 
 function main() {
-	const files = rangeInclusive(9, 1224).map(i => `./html/page${i}.html`)
+	const files = rangeInclusive(9, 960).map(i => `./html/page${i}.html`)
 	// const files = rangeInclusive(35, 72).map(i => `./html/page${i}.html`)
 	// const files = rangeInclusive(160, 160).map(i => `./html/page${i}.html`)
 	// console.log(files)
@@ -110,12 +110,13 @@ const rowHandlers = {
 
 		return pageNumberAtTop || pageNumberAtBottom
 	},
-	[ROW_TYPE.FOOTNOTE]: function isFootnoteRow(row, { seen, lastRow }) {
+	[ROW_TYPE.FOOTNOTE]: function isFootnoteRow(row, { seen, lastRow }, footnoteBelowPx = 200) {
 		const isFirstFootnoteRow = seen[ROW_TYPE.BODY]
 			&& !seen[ROW_TYPE.FOOTNOTE]
 			// && startsWithDigits(row.sections[0].text)
 			&& distanceBetweenRows(lastRow, row) > 16
 			&& row.sections.some(section => int(section.style.fontSize) <= 8)
+			&& int(row.style.top) > footnoteBelowPx
 
 		return isFirstFootnoteRow
 			|| seen[ROW_TYPE.FOOTNOTE]
@@ -130,20 +131,38 @@ const rowHandlers = {
 	},
 }
 
-const specialCases = {
-	'./html/page474.html': {
-		[ROW_TYPE.FOOTNOTE]: (row, meta) => {
-			return rowHandlers[ROW_TYPE.FOOTNOTE](row, meta)
-				&& int(row.style.top) > 540
-		}
-	},
-	'./html/page676.html': {
+const below = px => (row, meta) => {
+	return rowHandlers[ROW_TYPE.FOOTNOTE](row, meta, px)
+}
+const footnoteBelow = px => ({
+	[ROW_TYPE.FOOTNOTE]: below(px)
+})
+
+const specialCases = entries({
+	75: footnoteBelow(320),
+	358: footnoteBelow(530),
+	387: footnoteBelow(420),
+	425: footnoteBelow(400),
+	427: footnoteBelow(530),
+	474: footnoteBelow(540),
+	534: footnoteBelow(180),
+	567: footnoteBelow(530),
+	676: {
 		[ROW_TYPE.FOOTNOTE]: () => false
 	},
-	'./html/page793.html': {
+	699: footnoteBelow(445),
+	793: {
 		[ROW_TYPE.FOOTNOTE]: row => /^1\. /.test(row.sections[0].text)
-	}
-}
+	},
+	801: footnoteBelow(473),
+	869: footnoteBelow(490),
+	885: footnoteBelow(525),
+	886: footnoteBelow(460),
+	887: footnoteBelow(516),
+}).reduce((map, [pageNumber, object]) => {
+	map[`./html/page${pageNumber}.html`] = object
+	return map
+}, Object.create(null))
 
 function processRows(rows) {
 	return rowsFlatMapWithMeta(rows, (row, meta) => {

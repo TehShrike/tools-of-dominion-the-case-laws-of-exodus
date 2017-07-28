@@ -14,6 +14,7 @@ const ROW_TYPE = [
 
 const flatMap = (array, fn) => flatten(array.map(fn))
 const int = str => parseInt(str, 10)
+const str = whatever => whatever + ''
 const grabAllRowText = row => row.sections.map(({ text }) => text).join('')
 
 function assert(value, message) {
@@ -27,5 +28,6 @@ module.exports = {
 	flatMap,
 	int,
 	grabAllRowText,
-	assert
+	assert,
+	str,
 }
