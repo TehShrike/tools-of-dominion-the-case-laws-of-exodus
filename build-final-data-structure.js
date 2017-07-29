@@ -7,7 +7,10 @@ const extend = (...args) => Object.assign({}, ...args)
 
 const BLOCK_TYPES = {
 	TEXT: 'block:text',
-	FOOTNOTE_REFERENCE: 'block:footnote reference'
+	FOOTNOTE_REFERENCE: 'block:footnote reference',
+	HEADING_1: 'block:heading 1',
+	HEADING_2: 'block:heading 2',
+	HEADING_3: 'block:heading 3',
 }
 
 
@@ -20,12 +23,14 @@ const {
 	assert,
 } = require('./shared')
 
+const footnoteReferenceIdentifying = require('./footnote-reference-identifying')
+
 function main() {
 	const intermediate = require('./intermediate/content.json')
 
 	const actuallyCareAbout = intermediate.filter(row =>
 		row.rowType !== ROW_TYPE.PAGE_HEADER
-			&& int(row.style.left) < 220
+			&& (row.rowType === ROW_TYPE.PAGE_BREAK || int(row.style.left) < 220)
 	)
 
 	const chapters = splitRowsIntoChapters(actuallyCareAbout).map(chapter => {
@@ -40,10 +45,30 @@ function main() {
 		}
 	})
 
-	console.log(chapters[0].text)
+	const sectionPropertiesToKeep = [
+		'rowType',
+		'sections',
+		'style',
+		'file',
+		'blocks',
+	]
 
-	chapters.forEach(chapter => {
-		fs.writeFileSync(`./json/chapter-${chapter.number}.json`, JSON.stringify(chapter, null, '\t'))
+	const gussiedUpChapterText = chapters.map(chapter => {
+		return extend(chapter, {
+			text: chapter.text.map(section => {
+				const output = {}
+				sectionPropertiesToKeep.forEach(property => {
+					output[property] = section[property]
+				})
+				return output
+			})
+		})
+	})
+
+	console.log(gussiedUpChapterText[0].text)
+
+	gussiedUpChapterText.forEach(chapter => {
+		fs.writeFileSync(`./json/chapter-${chapter.number}.json`, JSON.stringify(gussiedUpChapterText, null, '\t'))
 	})
 
 }
@@ -76,20 +101,23 @@ function splitRowsIntoChapters(data) {
 }
 
 function addPointerTolast(array) {
-	let last = null
-	const lastBodies = []
+	let lastBodies = []
+
 	return array.map(element => {
 		const result = Object.assign({
 			// last,
 			lastBodies: [ ...lastBodies ]
 		}, element)
-		last = element
+
 		if (element.rowType === ROW_TYPE.BODY) {
 			lastBodies.unshift(element)
 			if (lastBodies.length > 5) {
 				lastBodies.pop()
 			}
+		} else if (element.rowType === ROW_TYPE.PAGE_BREAK) {
+			lastBodies = []
 		}
+
 		return result
 	})
 }
@@ -175,15 +203,9 @@ const sectionHasLeadingFootnoteNumber = (row, section) => {
 	if (row.lastBodies.length === 0) {
 		return false
 	}
-	const minimumLeftAlignment = row.lastBodies
-		.map(element => int(element.style.left))
-		.reduce((min, current) => current < min ? current : min)
 
-	const indentInPixels = int(row.style.left) - minimumLeftAlignment
-
-	const generalCheck = indentInPixels > 5
-		&& indentInPixels < 20
-		&& /^\d+ ?\./.test(section.text)
+	const isIndented = rowIsIndented(row)
+	const indentedWithLeadingDigits = isIndented && /^\d+ ?\./.test(section.text)
 
 	// if (row.file === './html/page747.html') {
 	// 	console.log(
@@ -193,7 +215,7 @@ const sectionHasLeadingFootnoteNumber = (row, section) => {
 	// 	)
 	// }
 
-	return generalCheck
+	return indentedWithLeadingDigits
 		|| (row.file === './html/page533.html' && /^, 39\. /.test(section.text))
 }
 
@@ -220,14 +242,80 @@ const sectionHasLeadingFootnoteNumber = (row, section) => {
 
 
 function getChapterTextFromBody(rows, footnoteCount) {
-	const textAndFootnoteBlocks = turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount)
+	const rowsOfTextAndFootnoteBlocks = turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount)
 
-	return textAndFootnoteBlocks.filter(block => !(block === BLOCK_TYPES.TEXT && block.text === ''))
+	const rowsOfTextFootnoteAndHeadingBlocks = identifyHeadingsAmongTextBlocks(rowsOfTextAndFootnoteBlocks)
+
+	// identify block quotes
+	// identify headers
+	// identify paragraph breaks
+
+	/*
+		Instead of rows, "portions" or something
+			- paragraph
+			- heading (1, 2, 3)
+			- block quote
+			- list?
+		Containing blocks
+			- text
+			- footnote reference
+	*/
+
+	return rowsOfTextAndFootnoteBlocks.filter(block => !(block.type === BLOCK_TYPES.TEXT && block.text === ''))
+}
+
+function identifyHeadingsAmongTextBlocks(rowsWithBlocks) {
+	return rowsWithBlocks.map(row => {
+		const indent = getRowIndentInPixels(row)
+
+		// headers must be after a page break or gap (20+ px since the top of the last)
+		// mostly italic or mostly bold
+		// or, indented more than 32px
+
+		const rowWithBlocksCombined = type => extend(row, { blocks: combineAdjacentTextBlocks(row.blocks, type) })
+
+		if (indent < 5 && blocksAreMostlyItalic(row.blocks)) {
+			return rowWithBlocksCombined(BLOCK_TYPES.HEADING_3)
+		} else {
+			return row
+		}
+	})
+}
+
+const combineAdjacentTextBlocks = (blocks, newBlockType = BLOCK_TYPES.TEXT) => {
+	const templateTextBlock = blocks.find(block => block.type === BLOCK_TYPES.TEXT)
+	const templateBlock = extend(templateTextBlock, { text: '', type: newBlockType })
+
+	let accumulatingText = ''
+	const getCurrentTextBlock = () => {
+		if (!accumulatingText) {
+			return []
+		}
+
+		const newBlock = extend(templateBlock, { text: accumulatingText })
+		accumulatingText = ''
+		return newBlock
+	}
+
+
+	const allBlocksExceptLastGroup = flatMap(blocks, block => {
+		if (block.type === BLOCK_TYPES.TEXT) {
+			accumulatingText += block.text
+			return []
+		} else {
+			return [
+				getCurrentTextBlock(),
+				block
+			]
+		}
+	})
+
+	return accumulatingText
+		? [ ...allBlocksExceptLastGroup, ...getCurrentTextBlock() ]
+		: allBlocksExceptLastGroup
 }
 
 function turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount) {
-	const nonDigitOrColon = /[^\d:]+/
-	const anything = /.*?/
 
 	let nextFootnoteNumber = 1
 
@@ -236,156 +324,8 @@ function turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount) {
 	const block = type => section => extend(section, { type })
 	const textBlock = block(BLOCK_TYPES.TEXT)
 	const footnoteReferenceBlock = block(BLOCK_TYPES.FOOTNOTE_REFERENCE)
-	const buildRegex = (nextFootnoteNumber, delimiter = nonDigitOrColon) => r.combine(
-		r.capture(
-			/^/,
-			r.optional(anything, delimiter),
-		),
-		str(nextFootnoteNumber),
-		r.capture(
-			r.optional(delimiter, anything),
-			/$/
-		)
-	)
 
-	const specialCases = entries({
-		122: {
-			11: 'l1'
-		},
-		166: {
-			101: 'lOl'
-		},
-		200: {
-			225: buildRegex(225, /[^\d]/)
-		},
-		222: {
-			11: 'll'
-		},
-		227: {
-			18: '1s'
-		},
-		264: {
-			10: '1O'
-		},
-		273: {
-			20: '2o'
-		},
-		286: {
-			1: buildRegex('l', /,| /)
-		},
-		332: {
-			10: '1o'
-		},
-		360: {
-			40: buildRegex('w', /"| /)
-		},
-		371: {
-			10: '1O',
-			11: 'l1',
-		},
-		381: {
-			40: '4O',
-		},
-		392: {
-			10: buildRegex('to', /^|(?: $)/)
-		},
-		415: {
-			77: buildRegex('7', /^|(?: $)/)
-		},
-		425: {
-			10: 'lO',
-		},
-		451: {
-			9: buildRegex('g', r.either('"', ' ')),
-			11: 'l1',
-		},
-		458: {
-			30: '3o'
-		},
-		471: {
-			11: 'l1'
-		},
-		510: {
-			11: 'l1'
-		},
-		515: {
-			11: 'l1'
-		},
-		594: {
-			60: '6o'
-		},
-		625: {
-			18: 'i8'
-		},
-		645: {
-			10: /not gonna find this!/
-		},
-		646: {
-			10: buildRegex('to', /^|$/)
-		},
-		647: {
-			11: 'l1'
-		},
-		665: {
-			18: 'l8'
-		},
-		687: {
-			10: 'IO'
-		},
-		700: {
-			30: '3o'
-		},
-		705: {
-			40: '4O'
-		},
-		725: {
-			11: 'l1'
-		},
-		726: {
-			15: 'i5'
-		},
-		744: {
-			60: '6o'
-		},
-		759: {
-			79: buildRegex('9 ', /^|$/)
-		},
-		770: {
-			20: '2o'
-		},
-		777: {
-			35: buildRegex('5', /^|$/)
-		},
-		790: {
-			10: buildRegex('to ', /^|$/)
-		},
-		797: {
-			20: '2o'
-		},
-		870: {
-			20: '2o'
-		},
-		887: {
-			10: 'lO',
-			11: buildRegex('tt', /^|$/)
-		},
-		899: {
-			40: /not here at all, srsly/
-		},
-		903: {
-			10: buildRegex('to ', /^|$/)
-		},
-		915: {
-			10: buildRegex('to ', /^|$/),
-			11: 'l1'
-		},
-		916: {
-			15: '1s'
-		}
-	}).reduce((map, [pageNumber, object]) => {
-		map[`./html/page${pageNumber}.html`] = object
-		return map
-	}, Object.create(null))
+	const {specialCases, buildRegex} = footnoteReferenceIdentifying
 
 	const log = null
 	const startedLookingForFootnote = {}
@@ -416,8 +356,8 @@ function turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount) {
 		}
 	}
 
-	const blocksWithTypes = flatMap(bodyRows, row => {
-		return row.sections.map(section => {
+	const rowsWithBlocks = bodyRows.map(row => {
+		const blocks = flatMap(row.sections, section => {
 
 			if (log && row.file === `./html/page${log}.html`) {
 				console.log('nextFootnoteNumber is', nextFootnoteNumber, '- looking at', section)
@@ -425,14 +365,16 @@ function turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount) {
 
 			return splitIntoBlocksWithFootnotes(section, row.file)
 		})
+
+		return extend(row, { blocks })
 	})
 
 	// console.log(rows)
-	// console.log(blocksWithTypes)
+	// console.log(rowsWithBlocks)
 
 	assert(nextFootnoteNumber - 1 === footnoteCount, `Expected ${footnoteCount} footnotes but only got ${nextFootnoteNumber - 1} (${startedLookingForFootnote[nextFootnoteNumber]})`)
 
-	return blocksWithTypes
+	return rowsWithBlocks
 }
 
 
@@ -474,11 +416,15 @@ const junkToFilter = [
 	(row, section) => matches(row, section, 870, ROW_TYPE.FOOTNOTE, '~ ')
 ]
 const junkToMap = [
+	// TODO: fix the footnotes that had the "7" end up split across different sections
 	(row, section) => matches(row, section, 903, ROW_TYPE.FOOTNOTE, 'B. ')
 		? sectionWithNewText(section, '8. ')
 		: section
 ]
 const getNonJunkSections = row => {
+	if (!row.sections) {
+		return []
+	}
 	return row.sections
 		.filter(section => {
 			return junkToFilter.every(filterFunction => !filterFunction(row, section))
@@ -492,6 +438,43 @@ const fixJunkSections = rows => {
 		sections: getNonJunkSections(row)
 	}))
 }
+
+const rowIsIndented = row => {
+	const indentInPixels = getRowIndentInPixels(row)
+
+	return indentInPixels > 5
+		&& indentInPixels < 20
+}
+
+const getRowIndentInPixels = row => {
+	if (row.lastBodies.length === 0) {
+		return 0
+	}
+
+	const minimumLeftAlignment = row.lastBodies
+		.map(element => int(element.style.left))
+		.reduce((min, current) => current < min ? current : min)
+
+	return int(row.style.left) - minimumLeftAlignment
+}
+
+const blocksAreMostlyItalic = blocks => {
+	const totals = blocks
+		.filter(block => block.type === BLOCK_TYPES.TEXT)
+		.map(({ text, style: { italic }}) => ({text, italic }))
+		.reduce((totals, { text, italic }) => {
+			const words = text.split(/\s+/).length
+			if (italic) {
+				totals.italic += words
+			} else {
+				totals.normal += words
+			}
+			return totals
+		}, { normal: 0, italic: 0 })
+
+	return (totals.normal / totals.italic) <= 0.4
+}
+
 
 const parseOutFootnoteNumberAndText = section => {
 	const [ number, rest ] = match(/^[^\d]*(\d+) ?\. *(.*)/, section.text)[0]

@@ -61,7 +61,10 @@ function main() {
 		})
 
 
-		return processRows(rows)
+		return [
+			processRows(rows),
+			{ rowType: ROW_TYPE.PAGE_BREAK }
+		]
 	})
 
 	// intermediate.map(row => {

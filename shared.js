@@ -7,6 +7,10 @@ const ROW_TYPE = [
 	'INTRO_VERSE',
 	'PAGE_HEADER',
 	'FOOTNOTE',
+	'PAGE_BREAK',
+	'BODY_HEADER_1',
+	'BODY_HEADER_2',
+	'BODY_HEADER_3',
 ].reduce((map, type) => {
 	map[type] = 'row:' + type.replace(/_/g, ' ').toLowerCase()
 	return map
