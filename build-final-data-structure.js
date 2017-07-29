@@ -32,7 +32,7 @@ function main() {
 
 	const chapters = splitRowsIntoChapters(actuallyCareAbout).map(chapter => {
 		console.log('processing chapter', chapter.number)
-		const rows = fixJunkSections(addPointerTolast(chapter.rows))
+		const rows = fixJunkSections(addPointerTolast(addMetaProperties(chapter.rows)))
 		const footnotes = getChapterFootnotes(rows)
 		return {
 			number: chapter.number,
@@ -50,8 +50,14 @@ function main() {
 
 	const sectionPropertiesToKeep = [
 		'type',
+		'italic',
 		'value',
 		'text',
+	]
+
+	const footnoteSectionPropertiesToKeep = [
+		'text',
+		'italic',
 	]
 
 	const gussiedUpChapterText = chapters.map(chapter => {
@@ -80,7 +86,20 @@ function main() {
 					}
 				})
 				return output
-			})
+			}),
+			footnotes: entries(chapter.footnotes).reduce((newMap, [number, contents]) => {
+				newMap[number] = contents.map(footnoteSection => {
+					const newSection = {}
+					footnoteSectionPropertiesToKeep.forEach(property => {
+						if (footnoteSection[property] !== undefined) {
+							newSection[property] = footnoteSection[property]
+						}
+					})
+					return newSection
+				})
+
+				return newMap
+			}, {})
 		})
 	})
 
@@ -159,7 +178,21 @@ function getChapterTitle(rows) {
 
 
 
+function addMetaProperties(rows) {
+	return rows.map(row => {
+		if (row.sections) {
+			return extend(row, {
+				sections: row.sections.map(section => {
+					return extend(section, {
+						italic: section.fontStyle === 'italic'
+					})
+				})
+			})
+		}
 
+		return row
+	})
+}
 
 
 
@@ -178,7 +211,7 @@ function getChapterFootnotes(rows) {
 		footnotesArray.push(currentFootnote)
 	}
 	const addSectionsTextBlocks = sections => sections.forEach(section => {
-		currentFootnote.text.push(makeTextBlockFromSection(section))
+		currentFootnote.text.push(section)
 	})
 
 	rows
@@ -480,7 +513,6 @@ const getRowIndentInPixels = row => {
 const sectionsAreMostlyItalic = sections => {
 	const totals = sections
 		.filter(section => section.type === SECTION_TYPES.TEXT)
-		.map(({ text, style: { italic }}) => ({text, italic }))
 		.reduce((totals, { text, italic }) => {
 			const words = text.split(/\s+/).length
 			if (italic) {
@@ -497,16 +529,12 @@ const sectionsAreMostlyItalic = sections => {
 
 const parseOutFootnoteNumberAndText = section => {
 	const [ number, rest ] = match(/^[^\d]*(\d+) ?\. *(.*)/, section.text)[0]
-	const textObject = Object.assign(makeTextBlockFromSection(section), {
+	const textObject = extend(section, {
 		text: rest
 	})
 
 	return [ int(number), textObject ]
 }
-const makeTextBlockFromSection = section => ({
-	text: section.text,
-	italic: section.fontStyle === 'italic'
-})
 
 const removeTrailingDash = str => str.replace(/-$/, () => '')
 const cleanUpTextSections = textSections => textSections
