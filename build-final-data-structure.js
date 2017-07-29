@@ -5,12 +5,9 @@ const entries = require('ordered-entries')
 
 const extend = (...args) => Object.assign({}, ...args)
 
-const BLOCK_TYPES = {
-	TEXT: 'block:text',
-	FOOTNOTE_REFERENCE: 'block:footnote reference',
-	HEADING_1: 'block:heading 1',
-	HEADING_2: 'block:heading 2',
-	HEADING_3: 'block:heading 3',
+const SECTION_TYPES = {
+	TEXT: 'section:text',
+	FOOTNOTE_REFERENCE: 'section:footnote reference',
 }
 
 
@@ -45,20 +42,42 @@ function main() {
 		}
 	})
 
-	const sectionPropertiesToKeep = [
+	const rowPropertiesToKeep = [
 		'rowType',
 		'sections',
-		'style',
 		'file',
-		'blocks',
+	]
+
+	const sectionPropertiesToKeep = [
+		'type',
+		'value',
+		'text',
 	]
 
 	const gussiedUpChapterText = chapters.map(chapter => {
 		return extend(chapter, {
-			text: chapter.text.map(section => {
+			text: chapter.text.map(row => {
 				const output = {}
-				sectionPropertiesToKeep.forEach(property => {
-					output[property] = section[property]
+				rowPropertiesToKeep.forEach(property => {
+					if (row[property] === undefined) {
+						return
+					}
+
+					if (property === 'sections') {
+						output.sections = row.sections.map(section => {
+							const output = {}
+
+							sectionPropertiesToKeep.forEach(property => {
+								if (section[property] !== undefined) {
+									output[property] = section[property]
+								}
+							})
+
+							return output
+						})
+					} else {
+						output[property] = row[property]
+					}
 				})
 				return output
 			})
@@ -68,7 +87,7 @@ function main() {
 	console.log(gussiedUpChapterText[0].text)
 
 	gussiedUpChapterText.forEach(chapter => {
-		fs.writeFileSync(`./json/chapter-${chapter.number}.json`, JSON.stringify(gussiedUpChapterText, null, '\t'))
+		fs.writeFileSync(`./json/chapter-${chapter.number}.json`, JSON.stringify(chapter, null, '\t'))
 	})
 
 }
@@ -192,7 +211,7 @@ function getChapterFootnotes(rows) {
 	footnotesArray.push(currentFootnote)
 
 	const footnotesMap = footnotesArray.reduce((map, footnote) => {
-		map[footnote.number] = cleanUpTextBlocks(footnote.text)
+		map[footnote.number] = cleanUpTextSections(footnote.text)
 		return map
 	}, Object.create(null))
 
@@ -242,9 +261,9 @@ const sectionHasLeadingFootnoteNumber = (row, section) => {
 
 
 function getChapterTextFromBody(rows, footnoteCount) {
-	const rowsOfTextAndFootnoteBlocks = turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount)
+	const rowsOfTextAndFootnoteSections = turnSectionsIntoTextAndFootnoteSections(rows, footnoteCount)
 
-	const rowsOfTextFootnoteAndHeadingBlocks = identifyHeadingsAmongTextBlocks(rowsOfTextAndFootnoteBlocks)
+	const rowsIncludingHeaders = identifyHeadingRows(rowsOfTextAndFootnoteSections)
 
 	// identify block quotes
 	// identify headers
@@ -256,38 +275,38 @@ function getChapterTextFromBody(rows, footnoteCount) {
 			- heading (1, 2, 3)
 			- block quote
 			- list?
-		Containing blocks
+		Containing sections
 			- text
 			- footnote reference
 	*/
 
-	return rowsOfTextAndFootnoteBlocks.filter(block => !(block.type === BLOCK_TYPES.TEXT && block.text === ''))
+	return rowsOfTextAndFootnoteSections.filter(section => !(section.type === SECTION_TYPES.TEXT && section.text === ''))
 }
 
-function identifyHeadingsAmongTextBlocks(rowsWithBlocks) {
-	return rowsWithBlocks.map(row => {
+function identifyHeadingRows(rows) {
+	return rows.map(row => {
 		const indent = getRowIndentInPixels(row)
 
 		// headers must be after a page break or gap (20+ px since the top of the last)
 		// mostly italic or mostly bold
 		// or, indented more than 32px
 
-		const rowWithBlocksCombined = type => extend(row, { blocks: combineAdjacentTextBlocks(row.blocks, type) })
+		const rowWithSectionsCombined = type => extend(row, { sections: combineAdjacentTextBlocks(row.sections, type) })
 
-		if (indent < 5 && blocksAreMostlyItalic(row.blocks)) {
-			return rowWithBlocksCombined(BLOCK_TYPES.HEADING_3)
+		if (indent < 5 && sectionsAreMostlyItalic(row.sections)) {
+			return rowWithSectionsCombined(SECTION_TYPES.HEADING_3)
 		} else {
 			return row
 		}
 	})
 }
 
-const combineAdjacentTextBlocks = (blocks, newBlockType = BLOCK_TYPES.TEXT) => {
-	const templateTextBlock = blocks.find(block => block.type === BLOCK_TYPES.TEXT)
+const combineAdjacentTextBlocks = (sections, newBlockType = SECTION_TYPES.TEXT) => {
+	const templateTextBlock = sections.find(section => section.type === SECTION_TYPES.TEXT)
 	const templateBlock = extend(templateTextBlock, { text: '', type: newBlockType })
 
 	let accumulatingText = ''
-	const getCurrentTextBlock = () => {
+	const getCurrentTextSection = () => {
 		if (!accumulatingText) {
 			return []
 		}
@@ -298,39 +317,39 @@ const combineAdjacentTextBlocks = (blocks, newBlockType = BLOCK_TYPES.TEXT) => {
 	}
 
 
-	const allBlocksExceptLastGroup = flatMap(blocks, block => {
-		if (block.type === BLOCK_TYPES.TEXT) {
-			accumulatingText += block.text
+	const allSectionsExceptLastGroup = flatMap(sections, section => {
+		if (section.type === SECTION_TYPES.TEXT) {
+			accumulatingText += section.text
 			return []
 		} else {
 			return [
-				getCurrentTextBlock(),
-				block
+				getCurrentTextSection(),
+				section
 			]
 		}
 	})
 
 	return accumulatingText
-		? [ ...allBlocksExceptLastGroup, ...getCurrentTextBlock() ]
-		: allBlocksExceptLastGroup
+		? [ ...allSectionsExceptLastGroup, ...getCurrentTextSection() ]
+		: allSectionsExceptLastGroup
 }
 
-function turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount) {
+function turnSectionsIntoTextAndFootnoteSections(rows, footnoteCount) {
 
 	let nextFootnoteNumber = 1
 
 	const bodyRows = rows.filter(row => row.rowType === ROW_TYPE.BODY)
 
-	const block = type => section => extend(section, { type })
-	const textBlock = block(BLOCK_TYPES.TEXT)
-	const footnoteReferenceBlock = block(BLOCK_TYPES.FOOTNOTE_REFERENCE)
+	const section = type => section => extend(section, { type })
+	const textBlock = section(SECTION_TYPES.TEXT)
+	const footnoteReferenceBlock = section(SECTION_TYPES.FOOTNOTE_REFERENCE)
 
 	const {specialCases, buildRegex} = footnoteReferenceIdentifying
 
 	const log = null
 	const startedLookingForFootnote = {}
 
-	const splitIntoBlocksWithFootnotes = (section, file) => {
+	const splitIntoSectionsWithFootnotes = (section, file) => {
 		const specialCase = specialCases[file] && specialCases[file][nextFootnoteNumber]
 		const regex = ifthen(specialCase,
 			() => (specialCase instanceof RegExp) ? specialCase : buildRegex(specialCase),
@@ -347,7 +366,7 @@ function turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount) {
 			const newBlocks = [
 				textBlock(extend(section, { text: before })),
 				footnoteBlock,
-				splitIntoBlocksWithFootnotes(extend(section, { text: after }), file),
+				splitIntoSectionsWithFootnotes(extend(section, { text: after }), file),
 			]
 
 			return newBlocks
@@ -356,25 +375,25 @@ function turnSectionsIntoTextAndFootnoteBlocks(rows, footnoteCount) {
 		}
 	}
 
-	const rowsWithBlocks = bodyRows.map(row => {
-		const blocks = flatMap(row.sections, section => {
+	const rowsWithFootnotesInBlocks = bodyRows.map(row => {
+		const sections = flatMap(row.sections, section => {
 
 			if (log && row.file === `./html/page${log}.html`) {
 				console.log('nextFootnoteNumber is', nextFootnoteNumber, '- looking at', section)
 			}
 
-			return splitIntoBlocksWithFootnotes(section, row.file)
+			return splitIntoSectionsWithFootnotes(section, row.file)
 		})
 
-		return extend(row, { blocks })
+		return extend(row, { sections })
 	})
 
 	// console.log(rows)
-	// console.log(rowsWithBlocks)
+	// console.log(rowsWithFootnotesInBlocks)
 
 	assert(nextFootnoteNumber - 1 === footnoteCount, `Expected ${footnoteCount} footnotes but only got ${nextFootnoteNumber - 1} (${startedLookingForFootnote[nextFootnoteNumber]})`)
 
-	return rowsWithBlocks
+	return rowsWithFootnotesInBlocks
 }
 
 
@@ -458,9 +477,9 @@ const getRowIndentInPixels = row => {
 	return int(row.style.left) - minimumLeftAlignment
 }
 
-const blocksAreMostlyItalic = blocks => {
-	const totals = blocks
-		.filter(block => block.type === BLOCK_TYPES.TEXT)
+const sectionsAreMostlyItalic = sections => {
+	const totals = sections
+		.filter(section => section.type === SECTION_TYPES.TEXT)
 		.map(({ text, style: { italic }}) => ({text, italic }))
 		.reduce((totals, { text, italic }) => {
 			const words = text.split(/\s+/).length
@@ -490,9 +509,9 @@ const makeTextBlockFromSection = section => ({
 })
 
 const removeTrailingDash = str => str.replace(/-$/, () => '')
-const cleanUpTextBlocks = textBlocks => textBlocks
+const cleanUpTextSections = textSections => textSections
 	.filter(({ text }) => text)
-	.map(block => Object.assign({}, block, { text: removeTrailingDash(block.text) }))
+	.map(section => Object.assign({}, section, { text: removeTrailingDash(section.text) }))
 
 const ifthen = (value, ifFn, thenFn) => value ? ifFn() : thenFn()
 
